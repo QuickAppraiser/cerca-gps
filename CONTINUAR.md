@@ -1,121 +1,266 @@
-# CERCA - Estado del Proyecto y Próximos Pasos
+# CERCA - Estado del Proyecto
 
-## Estado Actual: APP FUNCIONAL PARA TESTING
+## Estado Actual: MVP COMPLETO - LISTO PARA TESTING
 
-La aplicación CERCA está **100% lista para probar** en modo desarrollo.
-
----
-
-## Para Probar AHORA (sin configuración adicional):
-
-1. **Abre terminal** en `C:\Users\asus\projects\cerca`
-2. **Ejecuta:** `npx expo start --tunnel`
-3. **En tu teléfono Android:**
-   - Descarga **Expo Go** de Play Store
-   - Abre Expo Go → "Enter URL manually"
-   - Escribe la URL que aparece en terminal (ej: `exp://xxxxx.exp.direct`)
+La aplicacion CERCA ahora incluye todas las funcionalidades del MVP y esta lista para probar.
 
 ---
 
-## Qué Funciona en Testing:
+## Funcionalidades Implementadas (Enero 2026)
 
-| Funcionalidad | Estado |
-|---------------|--------|
-| Login (simulado) | ✅ Cualquier número/código funciona |
-| Mapa de Armenia | ✅ Centrado en coordenadas reales |
-| Solicitar viaje | ✅ Flujo completo UI |
-| Buscar destino | ✅ Lugares populares de Armenia |
-| Tipos de vehículo | ✅ Estándar, Confort, Taxi |
-| Modos de viaje | ✅ Silencioso, Normal, Conversacional |
-| Sistema de créditos | ✅ UI de recarga (Nequi/Daviplata/PSE) |
-| Reportes de tráfico | ✅ Crear/confirmar reportes |
-| Rutas comunitarias | ✅ Ver y reservar rutas |
-| Botón SOS | ✅ Emergencia con radio expandible |
-| Modo conductor | ✅ Dashboard con toggle online |
+### Fase 1: Core - Autenticacion y Viajes
+- [x] **Login con Supabase Auth**: Autenticacion por telefono/OTP
+- [x] **Perfiles de Usuario**: Creacion automatica en primer login
+- [x] **Creacion de Viajes**: Busqueda de destino, confirmacion, precios
+- [x] **Matching Conductor-Pasajero**: Busqueda de conductores cercanos
+- [x] **Notificaciones Push**: Alertas para conductores (Expo Notifications)
+- [x] **Aceptar/Rechazar Viajes**: Flujo completo para conductores
 
----
+### Fase 2: Pagos y Calificaciones
+- [x] **Sistema de Creditos/Wallet**: Recargas, pagos, historial
+- [x] **Flujo de Pago de Viaje**: Cobro automatico al completar
+- [x] **Sistema de Calificaciones**: 5 estrellas + tags + comentarios
+- [x] **Historial de Viajes**: Lista de viajes pasados con filtros
 
-## Próximos Pasos para PRODUCCIÓN:
-
-### 1. Configurar Supabase (Base de datos real)
-- Ir a: https://supabase.com/dashboard
-- Crear proyecto `cerca-gps`
-- Copiar: Project URL y anon key
-- Ejecutar el schema SQL en: `supabase/schema.sql`
-
-### 2. Configurar Google Maps
-- Ir a: https://console.cloud.google.com
-- Habilitar: Maps SDK for Android, Places API, Directions API
-- Crear API Key
-
-### 3. Actualizar credenciales
-Editar `.env` con:
-```
-EXPO_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJ...tu-key
-EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=AIza...tu-key
-```
-
-### 4. Publicar en Google Play ($25)
-```bash
-npx eas build --platform android
-npx eas submit --platform android
-```
+### Fase 3: Pantallas Completas
+- [x] **Pantalla de Perfil**: Stats, rating breakdown, menu
+- [x] **Registro de Conductor**: Flujo multi-paso con validacion
+- [x] **Configuracion**: Notificaciones, privacidad, apariencia
+- [x] **Viaje en Progreso**: Tracking real-time con mapa
+- [x] **Viaje Completado**: Resumen, pago, calificacion
 
 ---
 
-## Archivos del Proyecto:
+## Estructura de Archivos Actualizada
 
 ```
-cerca/
+cerca-gps/
 ├── src/
-│   ├── components/          # Button, Input, Card, EmergencyButton
+│   ├── components/
+│   │   ├── common/
+│   │   │   ├── Button.tsx
+│   │   │   ├── Input.tsx
+│   │   │   ├── Card.tsx
+│   │   │   ├── ErrorBoundary.tsx
+│   │   │   └── Loading.tsx
+│   │   ├── emergency/
+│   │   │   └── EmergencyButton.tsx
+│   │   └── map/
+│   │       ├── MapView.tsx
+│   │       └── index.ts
+│   │
+│   ├── config/
+│   │   ├── environment.ts
+│   │   └── index.ts
+│   │
+│   ├── hooks/
+│   │   ├── useNetwork.ts
+│   │   ├── useLocation.ts
+│   │   └── index.ts
+│   │
+│   ├── utils/
+│   │   ├── validation.ts
+│   │   └── index.ts
+│   │
+│   ├── services/
+│   │   ├── supabase.ts           # Cliente Supabase
+│   │   ├── authService.ts        # Autenticacion
+│   │   ├── tripService.ts        # Viajes y matching
+│   │   ├── walletService.ts      # Creditos y pagos
+│   │   ├── ratingService.ts      # Calificaciones
+│   │   ├── notificationService.ts # Push notifications
+│   │   ├── mockData.ts           # Datos de prueba
+│   │   └── index.ts
+│   │
 │   ├── screens/
-│   │   ├── auth/           # LoginScreen
-│   │   ├── passenger/      # Home, SetDestination, ConfirmTrip, SearchingDriver
-│   │   ├── driver/         # DriverHomeScreen
-│   │   └── shared/         # Credits, TrafficReports, CommunityRoutes
-│   ├── store/              # Zustand: auth, trip, emergency
-│   ├── services/           # Supabase services
-│   ├── navigation/         # AppNavigator
-│   ├── types/              # TypeScript types
-│   └── constants/          # Theme, colors, Armenia config
+│   │   ├── auth/
+│   │   │   └── LoginScreen.tsx
+│   │   ├── passenger/
+│   │   │   ├── HomeScreen.tsx
+│   │   │   ├── SetDestinationScreen.tsx
+│   │   │   ├── ConfirmTripScreen.tsx
+│   │   │   ├── SearchingDriverScreen.tsx
+│   │   │   └── TripInProgressScreen.tsx   # NUEVO
+│   │   ├── driver/
+│   │   │   ├── DriverHomeScreen.tsx
+│   │   │   └── DriverRegisterScreen.tsx   # NUEVO
+│   │   └── shared/
+│   │       ├── CreditsScreen.tsx
+│   │       ├── TrafficReportsScreen.tsx
+│   │       ├── CommunityRoutesScreen.tsx
+│   │       ├── TripCompletedScreen.tsx    # NUEVO
+│   │       ├── TripHistoryScreen.tsx      # NUEVO
+│   │       ├── ProfileScreen.tsx          # NUEVO
+│   │       └── SettingsScreen.tsx         # NUEVO
+│   │
+│   ├── store/
+│   │   ├── authStore.ts
+│   │   ├── tripStore.ts
+│   │   └── index.ts
+│   │
+│   ├── navigation/
+│   │   └── AppNavigator.tsx       # Actualizado con todas las pantallas
+│   │
+│   ├── types/
+│   │   └── index.ts
+│   │
+│   └── constants/
+│       └── theme.ts
+│
 ├── supabase/
-│   └── schema.sql          # Base de datos completa
-├── .env                    # Variables de entorno (no subir a git)
-├── app.json               # Config Expo con permisos Android
-└── TESTING.md             # Guía de testing
+│   └── schema.sql
+│
+├── App.tsx
+├── package.json
+├── tsconfig.json
+├── TESTING.md
+├── SETUP.md
+├── MVP_PLAN.md
+└── CONTINUAR.md
 ```
 
 ---
 
-## Comandos Útiles:
+## Servicios Implementados
+
+### authService.ts
+- `signInWithPhone(phone)` - Iniciar sesion con telefono
+- `verifyOTP(phone, otp)` - Verificar codigo OTP
+- `signOut()` - Cerrar sesion
+- `getProfile(userId)` - Obtener perfil
+- `updateProfile(userId, data)` - Actualizar perfil
+- `createProfile(userData)` - Crear perfil nuevo
+
+### tripService.ts
+- `createTrip(data)` - Crear viaje
+- `findNearbyDrivers(location)` - Buscar conductores
+- `acceptTrip(tripId, driverId)` - Aceptar viaje
+- `rejectTrip(tripId, driverId)` - Rechazar viaje
+- `cancelTrip(tripId, reason)` - Cancelar viaje
+- `completeTrip(tripId, finalPrice)` - Completar viaje
+- `subscribeToTrip(tripId, callback)` - Suscribirse a actualizaciones
+- `subscribeToTripUpdates(tripId, callback)` - Updates en tiempo real
+- `subscribeToDriverRequests(driverId, callback)` - Solicitudes para conductor
+- `getTripHistory(userId, role)` - Historial de viajes
+- `getDriverStats(driverId, period)` - Estadisticas del conductor
+- `calculatePrice(distance, duration, vehicleType)` - Calcular precio
+
+### walletService.ts
+- `getBalance(userId)` - Obtener saldo
+- `recharge(data)` - Recargar creditos
+- `payTrip(data)` - Pagar viaje
+- `addDriverEarnings(driverId, tripId, amount)` - Agregar ganancias
+- `getTransactions(userId)` - Historial transacciones
+- `requestWithdrawal(driverId, amount)` - Solicitar retiro
+- `hasSufficientBalance(userId, amount)` - Verificar saldo
+
+### ratingService.ts
+- `submitRating(data)` - Enviar calificacion
+- `getUserRatingStats(userId)` - Estadisticas de rating
+- `getUserRecentRatings(userId)` - Ratings recientes
+- `hasRated(tripId, raterId)` - Verificar si ya califico
+- `reportIssue(tripId, reporterId, issueType)` - Reportar problema
+- `getTagLabel(tagId, role)` - Obtener etiqueta
+- `RATING_TAGS` - Tags disponibles para calificar
+
+### notificationService.ts
+- `registerForPushNotifications()` - Registrar dispositivo
+- `savePushToken(userId, token)` - Guardar token
+- `sendLocalNotification(title, body)` - Notificacion local
+- `notifyTripRequest(driverToken, tripData)` - Notificar solicitud
+- `notifyTripAccepted(passengerToken, tripData)` - Notificar aceptacion
+- `notifyDriverArriving(passengerToken, eta)` - Notificar llegada
+
+---
+
+## Para Probar AHORA
+
+### Opcion 1: Web Local
+```bash
+npm install
+npm run web
+```
+
+### Opcion 2: Expo Go (Telefono)
+```bash
+npm install
+npx expo start --tunnel
+```
+Escanea el QR con Expo Go.
+
+### Opcion 3: Android APK
+```bash
+npm install -g eas-cli
+eas login
+eas build --platform android --profile preview
+```
+
+---
+
+## Modo Desarrollo (DEV_MODE)
+
+La app tiene datos mock para probar sin backend:
+
+- **Login**: Cualquier numero funciona, OTP: 123456
+- **Conductores**: Aparecen automaticamente en 3-8 segundos
+- **Pagos**: Simulados, siempre exitosos
+- **Ratings**: Se guardan localmente
+
+Para activar produccion, configurar `.env`:
+```env
+EXPO_PUBLIC_ENV=production
+EXPO_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+```
+
+---
+
+## Proximos Pasos Opcionales
+
+### Mejoras de UI/UX
+- [ ] Animaciones de transicion mas fluidas
+- [ ] Haptic feedback en interacciones
+- [ ] Soporte para modo oscuro completo
+- [ ] Tutoriales de onboarding
+
+### Funcionalidades Adicionales
+- [ ] Chat en tiempo real conductor-pasajero
+- [ ] Viajes programados
+- [ ] Compartir viaje con contactos
+- [ ] Estimacion de tarifa dinamica
+- [ ] Cupones y promociones
+
+### Produccion
+- [ ] Configurar Supabase en produccion
+- [ ] Implementar Stripe/PayPal para pagos reales
+- [ ] Configurar Google Maps API
+- [ ] Build y publicar en Play Store
+
+---
+
+## Comandos Utiles
 
 ```bash
-# Iniciar servidor de desarrollo
-cd C:\Users\asus\projects\cerca
-npx expo start --tunnel
+# Desarrollo
+npm install              # Instalar dependencias
+npx expo start           # Iniciar desarrollo
+npx expo start --tunnel  # Con tunel para movil
+npm run web              # Solo web
 
-# Verificar TypeScript
-npx tsc --noEmit
+# Verificacion
+npx tsc --noEmit         # Verificar tipos
+npx expo doctor          # Diagnosticar problemas
 
-# Build para Android
-npx eas build --platform android --profile preview
+# Limpiar
+npx expo start -c        # Limpiar cache
+rm -rf node_modules && npm install  # Reinstalar
 
-# Ver en GitHub
-https://github.com/QuickAppraiser/cerca-gps
+# Build
+eas build --platform android --profile preview   # APK de prueba
+eas build --platform android --profile production # APK produccion
 ```
 
 ---
 
-## Contacto y Recursos:
-
-- **Repositorio:** https://github.com/QuickAppraiser/cerca-gps
-- **Expo Go:** https://play.google.com/store/apps/details?id=host.exp.exponent
-- **Supabase:** https://supabase.com
-- **Google Cloud:** https://console.cloud.google.com
-
----
-
-**Última actualización:** Enero 2026
-**Estado:** Listo para testing / Pendiente configuración producción
+**Ultima actualizacion:** Enero 2026
+**Estado:** MVP Completo - Listo para Testing

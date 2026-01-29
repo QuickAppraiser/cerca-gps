@@ -1,0 +1,39 @@
+run = "npm run web"
+entrypoint = "App.tsx"
+
+[nix]
+channel = "stable-23_11"
+
+[deployment]
+run = ["sh", "-c", "npm run web"]
+
+[[ports]]
+localPort = 8081
+externalPort = 80
+
+[[ports]]
+localPort = 19000
+externalPort = 3000
+
+[[ports]]
+localPort = 19006
+externalPort = 8080
+
+[languages]
+
+[languages.typescript]
+pattern = "**/{*.ts,*.tsx}"
+
+[languages.typescript.languageServer]
+start = "typescript-language-server --stdio"
+
+[packager]
+language = "nodejs"
+
+[packager.features]
+packageSearch = true
+guessImports = true
+enabledForHosting = false
+
+[env]
+EXPO_PUBLIC_ENV = "development"

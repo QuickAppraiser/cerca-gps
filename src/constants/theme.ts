@@ -118,6 +118,11 @@ export const SHADOWS = {
 
 // Constantes de Armenia, Quindío
 export const ARMENIA_CONFIG = {
+  // Centro de la ciudad (usado como fallback cuando no hay GPS)
+  center: {
+    latitude: 4.5339,
+    longitude: -75.6811,
+  },
   initialRegion: {
     latitude: 4.5339,
     longitude: -75.6811,

@@ -1,5 +1,6 @@
 // ==========================================
 // CERCA - Pantalla de Login
+// With real Supabase Auth integration
 // ==========================================
 
 import React, { useState } from 'react';
@@ -19,6 +20,9 @@ import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { COLORS, SPACING, FONT_SIZES } from '../../constants/theme';
 import { useAuthStore } from '../../store/authStore';
+import { authService } from '../../services/authService';
+import { validatePhone, validateOTP, formatPhone } from '../../utils/validation';
+import { config } from '../../config/environment';
 
 type LoginScreenProps = {
   navigation: NativeStackNavigationProp<any>;
@@ -29,73 +33,130 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
   const [verificationCode, setVerificationCode] = useState('');
   const [isCodeSent, setIsCodeSent] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [devCode, setDevCode] = useState<string | null>(null);
 
   const { setUser } = useAuthStore();
 
+  const handlePhoneChange = (text: string) => {
+    // Remove non-numeric characters
+    const cleaned = text.replace(/\D/g, '');
+    setPhone(cleaned);
+    setPhoneError(null);
+  };
+
   const handleSendCode = async () => {
-    if (phone.length < 10) {
-      Alert.alert('Error', 'Por favor ingresa un número de teléfono válido');
+    // Validate phone
+    const validation = validatePhone(phone);
+    if (!validation.isValid) {
+      setPhoneError(validation.error || 'Número inválido');
       return;
     }
 
     setIsLoading(true);
-    // TODO: Integrar con Supabase Auth
-    // Simulamos envío de código
-    setTimeout(() => {
+    setPhoneError(null);
+
+    try {
+      const result = await authService.sendOTP(phone);
+
+      if (result.success) {
+        setIsCodeSent(true);
+
+        // In dev mode, show the code
+        if (config.isDevelopment && result.data?.devCode) {
+          setDevCode(result.data.devCode);
+        }
+
+        Alert.alert(
+          'Código enviado',
+          `Se envió un código de verificación al ${formatPhone(phone)}`
+        );
+      } else {
+        Alert.alert('Error', result.error || 'No se pudo enviar el código');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Error de conexión. Intenta de nuevo.');
+    } finally {
       setIsLoading(false);
-      setIsCodeSent(true);
-      Alert.alert('Código enviado', `Se envió un código de verificación al ${phone}`);
-    }, 1500);
+    }
   };
 
   const handleVerifyCode = async () => {
-    if (verificationCode.length < 4) {
-      Alert.alert('Error', 'Por favor ingresa el código de verificación');
+    // Validate OTP
+    const validation = validateOTP(verificationCode);
+    if (!validation.isValid) {
+      setCodeError(validation.error || 'Código inválido');
       return;
     }
 
     setIsLoading(true);
-    // TODO: Verificar código con Supabase
-    // Por ahora simulamos login exitoso
-    setTimeout(() => {
+    setCodeError(null);
+
+    try {
+      const result = await authService.verifyOTP(phone, verificationCode);
+
+      if (result.success && result.data) {
+        // Map the response to our User type
+        const userData = result.data.user || result.data.profile;
+
+        if (userData) {
+          // Convert profile to User format if needed
+          const user = {
+            id: userData.id,
+            phone: userData.phone || `+57${phone}`,
+            firstName: userData.firstName || userData.full_name?.split(' ')[0] || 'Usuario',
+            lastName: userData.lastName || userData.full_name?.split(' ').slice(1).join(' ') || 'CERCA',
+            role: userData.role || 'passenger',
+            rating: userData.rating || 5.0,
+            totalTrips: userData.totalTrips || userData.total_trips || 0,
+            tokens: userData.tokens || 100,
+            credits: userData.credits || 50000,
+            isPremium: userData.isPremium || false,
+            isVerified: userData.isVerified || userData.is_verified || true,
+            createdAt: userData.createdAt || new Date(),
+            emergencyContacts: userData.emergencyContacts || [],
+            preferences: userData.preferences || {
+              rideMode: 'normal',
+              preferredVehicleTypes: ['standard'],
+              accessibilityNeeds: [],
+              language: 'es',
+              notifications: {
+                tripUpdates: true,
+                promotions: true,
+                communityAlerts: true,
+                documentReminders: true,
+              },
+            },
+            reputation: userData.reputation || {
+              overall: 100,
+              asPassenger: 100,
+              asDriver: 0,
+              reliability: 100,
+              communityHelp: 0,
+              reportAccuracy: 0,
+            },
+          };
+
+          setUser(user);
+          // Navigation handled by AppNavigator based on auth state
+        }
+      } else {
+        setCodeError(result.error || 'Código incorrecto');
+        Alert.alert('Error', result.error || 'Código incorrecto');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Error de conexión. Intenta de nuevo.');
+    } finally {
       setIsLoading(false);
-      // Usuario de prueba
-      setUser({
-        id: 'test_user_1',
-        phone,
-        firstName: 'Usuario',
-        lastName: 'CERCA',
-        role: 'passenger',
-        rating: 5.0,
-        totalTrips: 0,
-        tokens: 100,
-        credits: 0,
-        isPremium: false,
-        isVerified: true,
-        createdAt: new Date(),
-        emergencyContacts: [],
-        preferences: {
-          rideMode: 'normal',
-          preferredVehicleTypes: [],
-          accessibilityNeeds: [],
-          language: 'es',
-          notifications: {
-            tripUpdates: true,
-            promotions: true,
-            communityAlerts: true,
-            documentReminders: true,
-          },
-        },
-        reputation: {
-          overall: 100,
-          asPassenger: 100,
-          asDriver: 0,
-          reliability: 100,
-          communityHelp: 0,
-          reportAccuracy: 0,
-        },
-      });
-    }, 1500);
+    }
+  };
+
+  const handleResend = () => {
+    setVerificationCode('');
+    setCodeError(null);
+    setDevCode(null);
+    handleSendCode();
   };
 
   return (
@@ -126,48 +187,78 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
 
             {!isCodeSent ? (
               <>
-                <Input
-                  label="Número de celular"
-                  placeholder="300 123 4567"
-                  keyboardType="phone-pad"
-                  value={phone}
-                  onChangeText={setPhone}
-                  maxLength={10}
-                />
+                <View style={styles.phoneInputContainer}>
+                  <View style={styles.countryCode}>
+                    <Text style={styles.countryCodeText}>+57</Text>
+                  </View>
+                  <View style={styles.phoneInputWrapper}>
+                    <Input
+                      placeholder="300 123 4567"
+                      keyboardType="phone-pad"
+                      value={phone}
+                      onChangeText={handlePhoneChange}
+                      maxLength={10}
+                      error={phoneError || undefined}
+                    />
+                  </View>
+                </View>
 
                 <Button
                   title="Enviar código"
                   onPress={handleSendCode}
                   loading={isLoading}
+                  disabled={phone.length < 10}
                   fullWidth
                 />
               </>
             ) : (
               <>
-                <Text style={styles.phoneDisplay}>+57 {phone}</Text>
+                <Text style={styles.phoneDisplay}>+57 {formatPhone(phone)}</Text>
+
+                {/* Dev mode hint */}
+                {config.isDevelopment && devCode && (
+                  <View style={styles.devHint}>
+                    <Text style={styles.devHintText}>
+                      🔧 Código de prueba: {devCode}
+                    </Text>
+                  </View>
+                )}
 
                 <Input
                   label="Código de verificación"
-                  placeholder="1234"
+                  placeholder="123456"
                   keyboardType="number-pad"
                   value={verificationCode}
-                  onChangeText={setVerificationCode}
+                  onChangeText={(text) => {
+                    setVerificationCode(text.replace(/\D/g, ''));
+                    setCodeError(null);
+                  }}
                   maxLength={6}
+                  error={codeError || undefined}
                 />
 
                 <Button
                   title="Verificar"
                   onPress={handleVerifyCode}
                   loading={isLoading}
+                  disabled={verificationCode.length < 6}
                   fullWidth
                 />
 
-                <TouchableOpacity
-                  style={styles.resendButton}
-                  onPress={() => setIsCodeSent(false)}
-                >
-                  <Text style={styles.resendText}>Cambiar número</Text>
-                </TouchableOpacity>
+                <View style={styles.codeActions}>
+                  <TouchableOpacity onPress={handleResend}>
+                    <Text style={styles.resendText}>Reenviar código</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity onPress={() => {
+                    setIsCodeSent(false);
+                    setVerificationCode('');
+                    setCodeError(null);
+                    setDevCode(null);
+                  }}>
+                    <Text style={styles.changeText}>Cambiar número</Text>
+                  </TouchableOpacity>
+                </View>
               </>
             )}
           </View>
@@ -238,18 +329,56 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     marginBottom: SPACING.lg,
   },
+  phoneInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: SPACING.md,
+  },
+  countryCode: {
+    backgroundColor: COLORS.gray[100],
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md + 4,
+    borderRadius: 8,
+    marginRight: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.gray[200],
+  },
+  countryCodeText: {
+    fontSize: FONT_SIZES.md,
+    color: COLORS.textPrimary,
+    fontWeight: '600',
+  },
+  phoneInputWrapper: {
+    flex: 1,
+  },
   phoneDisplay: {
     fontSize: FONT_SIZES.lg,
     color: COLORS.primary,
     fontWeight: '600',
     marginBottom: SPACING.md,
   },
-  resendButton: {
+  devHint: {
+    backgroundColor: COLORS.info + '20',
+    padding: SPACING.sm,
+    borderRadius: 8,
+    marginBottom: SPACING.md,
+  },
+  devHintText: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.info,
+    textAlign: 'center',
+  },
+  codeActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginTop: SPACING.md,
-    alignItems: 'center',
   },
   resendText: {
     color: COLORS.primary,
+    fontSize: FONT_SIZES.md,
+  },
+  changeText: {
+    color: COLORS.textSecondary,
     fontSize: FONT_SIZES.md,
   },
   driverSection: {

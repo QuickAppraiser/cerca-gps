@@ -19,32 +19,37 @@ import { HomeScreen } from '../screens/passenger/HomeScreen';
 import { SetDestinationScreen } from '../screens/passenger/SetDestinationScreen';
 import { ConfirmTripScreen } from '../screens/passenger/ConfirmTripScreen';
 import { SearchingDriverScreen } from '../screens/passenger/SearchingDriverScreen';
+import { TripInProgressScreen } from '../screens/passenger/TripInProgressScreen';
 
 // Driver Screens
 import { DriverHomeScreen } from '../screens/driver/DriverHomeScreen';
+import { DriverRegisterScreen } from '../screens/driver/DriverRegisterScreen';
 
 // Shared Screens
 import { CreditsScreen } from '../screens/shared/CreditsScreen';
 import { TrafficReportsScreen } from '../screens/shared/TrafficReportsScreen';
 import { CommunityRoutesScreen } from '../screens/shared/CommunityRoutesScreen';
+import { TripCompletedScreen } from '../screens/shared/TripCompletedScreen';
+import { TripHistoryScreen } from '../screens/shared/TripHistoryScreen';
+import { ProfileScreen } from '../screens/shared/ProfileScreen';
+import { SettingsScreen } from '../screens/shared/SettingsScreen';
+import { TokensScreen } from '../screens/shared/TokensScreen';
+import { FavoritesScreen } from '../screens/shared/FavoritesScreen';
+import { DocumentsScreen } from '../screens/shared/DocumentsScreen';
+import { SupportScreen } from '../screens/shared/SupportScreen';
+import { EmergencyContactsScreen } from '../screens/shared/EmergencyContactsScreen';
+import { PromoScreen } from '../screens/shared/PromoScreen';
+import { ReferralScreen } from '../screens/shared/ReferralScreen';
+import { TripReceiptScreen } from '../screens/shared/TripReceiptScreen';
 
-// Placeholder screens (se implementarán después)
-const PlaceholderScreen = ({ name }: { name: string }) => (
-  <View style={styles.placeholder}>
-    <Text style={styles.placeholderText}>{name}</Text>
-    <Text style={styles.placeholderSubtext}>Próximamente</Text>
-  </View>
-);
+// Driver Screens
+import { DriverEarningsScreen } from '../screens/driver/DriverEarningsScreen';
 
-// Auth Stack
+// Auth Stack (solo login - registro de conductor requiere autenticacion)
 const AuthStack = createNativeStackNavigator();
 const AuthNavigator = () => (
   <AuthStack.Navigator screenOptions={{ headerShown: false }}>
     <AuthStack.Screen name="Login" component={LoginScreen} />
-    <AuthStack.Screen
-      name="DriverRegister"
-      component={() => <PlaceholderScreen name="Registro Conductor" />}
-    />
   </AuthStack.Navigator>
 );
 
@@ -70,7 +75,7 @@ const PassengerTabNavigator = () => (
     />
     <PassengerTab.Screen
       name="Activity"
-      component={() => <PlaceholderScreen name="Actividad" />}
+      component={TripHistoryScreen}
       options={{
         tabBarLabel: 'Actividad',
         tabBarIcon: () => <Text style={{ fontSize: 20 }}>📋</Text>,
@@ -78,7 +83,7 @@ const PassengerTabNavigator = () => (
     />
     <PassengerTab.Screen
       name="Community"
-      component={() => <PlaceholderScreen name="Comunidad" />}
+      component={CommunityRoutesScreen}
       options={{
         tabBarLabel: 'Comunidad',
         tabBarIcon: () => <Text style={{ fontSize: 20 }}>👥</Text>,
@@ -86,7 +91,7 @@ const PassengerTabNavigator = () => (
     />
     <PassengerTab.Screen
       name="Profile"
-      component={() => <PlaceholderScreen name="Perfil" />}
+      component={ProfileScreen}
       options={{
         tabBarLabel: 'Perfil',
         tabBarIcon: () => <Text style={{ fontSize: 20 }}>👤</Text>,
@@ -117,7 +122,7 @@ const DriverTabNavigator = () => (
     />
     <DriverTab.Screen
       name="Trips"
-      component={() => <PlaceholderScreen name="Viajes" />}
+      component={TripHistoryScreen}
       options={{
         tabBarLabel: 'Viajes',
         tabBarIcon: () => <Text style={{ fontSize: 20 }}>📍</Text>,
@@ -125,7 +130,7 @@ const DriverTabNavigator = () => (
     />
     <DriverTab.Screen
       name="Earnings"
-      component={() => <PlaceholderScreen name="Ganancias" />}
+      component={CreditsScreen}
       options={{
         tabBarLabel: 'Ganancias',
         tabBarIcon: () => <Text style={{ fontSize: 20 }}>💰</Text>,
@@ -133,7 +138,7 @@ const DriverTabNavigator = () => (
     />
     <DriverTab.Screen
       name="DriverProfile"
-      component={() => <PlaceholderScreen name="Perfil" />}
+      component={ProfileScreen}
       options={{
         tabBarLabel: 'Perfil',
         tabBarIcon: () => <Text style={{ fontSize: 20 }}>👤</Text>,
@@ -171,7 +176,15 @@ const MainNavigator = () => {
       />
       <MainStack.Screen
         name="TripInProgress"
-        component={() => <PlaceholderScreen name="Viaje en Progreso" />}
+        component={TripInProgressScreen}
+      />
+      <MainStack.Screen
+        name="TripCompleted"
+        component={TripCompletedScreen}
+      />
+      <MainStack.Screen
+        name="TripHistory"
+        component={TripHistoryScreen}
       />
 
       {/* Pantallas compartidas */}
@@ -189,23 +202,59 @@ const MainNavigator = () => {
       />
       <MainStack.Screen
         name="Tokens"
-        component={() => <PlaceholderScreen name="Tokens CERCA" />}
+        component={TokensScreen}
       />
       <MainStack.Screen
         name="Favorites"
-        component={() => <PlaceholderScreen name="Favoritos" />}
+        component={FavoritesScreen}
       />
       <MainStack.Screen
         name="Documents"
-        component={() => <PlaceholderScreen name="Documentos" />}
+        component={DocumentsScreen}
       />
       <MainStack.Screen
         name="Settings"
-        component={() => <PlaceholderScreen name="Configuración" />}
+        component={SettingsScreen}
       />
       <MainStack.Screen
         name="ActiveTrip"
-        component={() => <PlaceholderScreen name="Viaje Activo" />}
+        component={TripInProgressScreen}
+      />
+      <MainStack.Screen
+        name="DriverRegister"
+        component={DriverRegisterScreen}
+      />
+
+      {/* New screens */}
+      <MainStack.Screen
+        name="Support"
+        component={SupportScreen}
+        options={{ title: 'Ayuda' }}
+      />
+      <MainStack.Screen
+        name="EmergencyContacts"
+        component={EmergencyContactsScreen}
+        options={{ title: 'Contactos de Emergencia' }}
+      />
+      <MainStack.Screen
+        name="Promos"
+        component={PromoScreen}
+        options={{ title: 'Promociones' }}
+      />
+      <MainStack.Screen
+        name="Referrals"
+        component={ReferralScreen}
+        options={{ title: 'Invitar Amigos' }}
+      />
+      <MainStack.Screen
+        name="DriverEarnings"
+        component={DriverEarningsScreen}
+        options={{ title: 'Mis Ganancias' }}
+      />
+      <MainStack.Screen
+        name="TripReceipt"
+        component={TripReceiptScreen}
+        options={{ title: 'Recibo' }}
       />
     </MainStack.Navigator>
   );

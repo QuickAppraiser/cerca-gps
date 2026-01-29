@@ -1,8 +1,9 @@
 // ==========================================
-// CERCA - Pantalla de Créditos
+// CERCA - Pantalla de Creditos
+// With real wallet service integration
 // ==========================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,6 +12,8 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -18,6 +21,9 @@ import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../../constants/theme';
 import { useAuthStore } from '../../store/authStore';
+import { walletService, Transaction } from '../../services/walletService';
+import { formatCurrency, validateCreditAmount } from '../../utils/validation';
+import { config } from '../../config/environment';
 
 type CreditsScreenProps = {
   navigation: NativeStackNavigationProp<any>;
@@ -29,7 +35,7 @@ const PAYMENT_METHODS = [
   { id: 'nequi', name: 'Nequi', icon: '💜', available: true },
   { id: 'daviplata', name: 'Daviplata', icon: '🔴', available: true },
   { id: 'pse', name: 'PSE', icon: '🏦', available: true },
-  { id: 'credit_card', name: 'Tarjeta de Crédito', icon: '💳', available: false },
+  { id: 'credit_card', name: 'Tarjeta de Credito', icon: '💳', available: false },
 ];
 
 export const CreditsScreen: React.FC<CreditsScreenProps> = ({ navigation }) => {
@@ -37,34 +43,158 @@ export const CreditsScreen: React.FC<CreditsScreenProps> = ({ navigation }) => {
   const [customAmount, setCustomAmount] = useState('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingBalance, setIsLoadingBalance] = useState(true);
+  const [isLoadingTransactions, setIsLoadingTransactions] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [balance, setBalance] = useState(0);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [amountError, setAmountError] = useState<string | null>(null);
 
   const { user, updateCredits } = useAuthStore();
 
   const finalAmount = selectedAmount || (customAmount ? parseInt(customAmount) : 0);
 
-  const handleRecharge = () => {
-    if (!finalAmount || finalAmount < 5000) {
-      Alert.alert('Monto inválido', 'El monto mínimo de recarga es $5,000 COP');
+  // Load balance and transactions on mount
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    if (!user?.id) return;
+
+    setIsLoadingBalance(true);
+    setIsLoadingTransactions(true);
+
+    // Load balance
+    const balanceResult = await walletService.getBalance(user.id);
+    if (balanceResult.success) {
+      setBalance(balanceResult.data.balance);
+      // Sync with auth store
+      updateCredits(balanceResult.data.balance - (user.credits || 0));
+    }
+    setIsLoadingBalance(false);
+
+    // Load transactions
+    const txResult = await walletService.getTransactions(user.id, 5);
+    if (txResult.success) {
+      setTransactions(txResult.data);
+    }
+    setIsLoadingTransactions(false);
+  };
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  }, [user?.id]);
+
+  const handleAmountChange = (text: string) => {
+    const cleaned = text.replace(/[^0-9]/g, '');
+    setCustomAmount(cleaned);
+    setSelectedAmount(null);
+    setAmountError(null);
+
+    // Validate amount
+    if (cleaned) {
+      const validation = validateCreditAmount(parseInt(cleaned));
+      if (!validation.isValid) {
+        setAmountError(validation.error || null);
+      }
+    }
+  };
+
+  const handleRecharge = async () => {
+    // Validate amount
+    const validation = validateCreditAmount(finalAmount);
+    if (!validation.isValid) {
+      Alert.alert('Monto invalido', validation.error || 'El monto no es valido');
       return;
     }
 
     if (!selectedPaymentMethod) {
-      Alert.alert('Método de pago', 'Selecciona un método de pago');
+      Alert.alert('Metodo de pago', 'Selecciona un metodo de pago');
+      return;
+    }
+
+    if (!user?.id) {
+      Alert.alert('Error', 'Debes iniciar sesion');
       return;
     }
 
     setIsLoading(true);
 
-    // Simular proceso de pago
-    setTimeout(() => {
+    try {
+      const result = await walletService.recharge({
+        userId: user.id,
+        amount: finalAmount,
+        paymentMethod: selectedPaymentMethod as any,
+      });
+
+      if (result.success) {
+        // Update local state
+        setBalance(result.data.newBalance);
+
+        // Update auth store
+        updateCredits(finalAmount);
+
+        // Reload transactions
+        const txResult = await walletService.getTransactions(user.id, 5);
+        if (txResult.success) {
+          setTransactions(txResult.data);
+        }
+
+        Alert.alert(
+          'Recarga exitosa!',
+          `Se han agregado ${formatCurrency(finalAmount)} a tu cuenta CERCA`,
+          [{ text: 'OK', onPress: () => navigation.goBack() }]
+        );
+      } else {
+        Alert.alert('Error', result.error || 'No se pudo procesar la recarga');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Error de conexion. Intenta de nuevo.');
+    } finally {
       setIsLoading(false);
-      updateCredits(finalAmount);
-      Alert.alert(
-        '¡Recarga exitosa!',
-        `Se han agregado $${finalAmount.toLocaleString()} COP a tu cuenta CERCA`,
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
-      );
-    }, 2000);
+    }
+  };
+
+  const formatTransactionDate = (date: Date) => {
+    const now = new Date();
+    const txDate = new Date(date);
+    const diffMs = now.getTime() - txDate.getTime();
+    const diffHours = diffMs / (1000 * 60 * 60);
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+
+    if (diffHours < 1) {
+      return 'Hace unos minutos';
+    } else if (diffHours < 24) {
+      return `Hoy, ${txDate.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}`;
+    } else if (diffDays < 2) {
+      return `Ayer, ${txDate.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}`;
+    } else if (diffDays < 7) {
+      return `Hace ${Math.floor(diffDays)} dias`;
+    } else {
+      return txDate.toLocaleDateString('es-CO');
+    }
+  };
+
+  const getTransactionIcon = (type: string) => {
+    switch (type) {
+      case 'recharge':
+        return '💰';
+      case 'trip_payment':
+        return '🚗';
+      case 'trip_earning':
+        return '💵';
+      case 'bonus':
+        return '🎁';
+      case 'refund':
+        return '↩️';
+      case 'withdrawal':
+        return '🏧';
+      default:
+        return '📝';
+    }
   };
 
   return (
@@ -77,25 +207,44 @@ export const CreditsScreen: React.FC<CreditsScreenProps> = ({ navigation }) => {
         >
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Créditos CERCA</Text>
+        <Text style={styles.headerTitle}>Creditos CERCA</Text>
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Saldo actual */}
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {/* Dev Mode Banner */}
+        {config.isDevelopment && (
+          <View style={styles.devBanner}>
+            <Text style={styles.devBannerText}>
+              Modo desarrollo - Pagos simulados
+            </Text>
+          </View>
+        )}
+
+        {/* Balance Card */}
         <Card style={styles.balanceCard}>
           <Text style={styles.balanceLabel}>Tu saldo actual</Text>
-          <Text style={styles.balanceAmount}>
-            ${(user?.credits || 0).toLocaleString()} COP
-          </Text>
+          {isLoadingBalance ? (
+            <ActivityIndicator color={COLORS.white} style={styles.balanceLoader} />
+          ) : (
+            <Text style={styles.balanceAmount}>
+              {formatCurrency(balance)}
+            </Text>
+          )}
           <View style={styles.balanceInfo}>
             <Text style={styles.balanceInfoText}>
-              Usa tus créditos para pagar viajes sin efectivo
+              Usa tus creditos para pagar viajes sin efectivo
             </Text>
           </View>
         </Card>
 
-        {/* Montos rápidos */}
+        {/* Quick Amounts */}
         <Text style={styles.sectionTitle}>Selecciona un monto</Text>
         <View style={styles.quickAmounts}>
           {QUICK_AMOUNTS.map((amount) => (
@@ -108,6 +257,7 @@ export const CreditsScreen: React.FC<CreditsScreenProps> = ({ navigation }) => {
               onPress={() => {
                 setSelectedAmount(amount);
                 setCustomAmount('');
+                setAmountError(null);
               }}
             >
               <Text
@@ -116,16 +266,19 @@ export const CreditsScreen: React.FC<CreditsScreenProps> = ({ navigation }) => {
                   selectedAmount === amount && styles.quickAmountTextSelected,
                 ]}
               >
-                ${amount.toLocaleString()}
+                {formatCurrency(amount)}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* Monto personalizado */}
+        {/* Custom Amount */}
         <View style={styles.customAmountContainer}>
           <Text style={styles.customAmountLabel}>O ingresa otro monto</Text>
-          <View style={styles.customAmountInputContainer}>
+          <View style={[
+            styles.customAmountInputContainer,
+            amountError && styles.customAmountInputError,
+          ]}>
             <Text style={styles.currencyPrefix}>$</Text>
             <TextInput
               style={styles.customAmountInput}
@@ -133,18 +286,19 @@ export const CreditsScreen: React.FC<CreditsScreenProps> = ({ navigation }) => {
               placeholderTextColor={COLORS.gray[400]}
               keyboardType="numeric"
               value={customAmount}
-              onChangeText={(text) => {
-                setCustomAmount(text.replace(/[^0-9]/g, ''));
-                setSelectedAmount(null);
-              }}
+              onChangeText={handleAmountChange}
             />
             <Text style={styles.currencySuffix}>COP</Text>
           </View>
-          <Text style={styles.minAmount}>Monto mínimo: $5,000 COP</Text>
+          {amountError ? (
+            <Text style={styles.errorText}>{amountError}</Text>
+          ) : (
+            <Text style={styles.minAmount}>Monto minimo: $5,000 - Maximo: $500,000</Text>
+          )}
         </View>
 
-        {/* Métodos de pago */}
-        <Text style={styles.sectionTitle}>Método de pago</Text>
+        {/* Payment Methods */}
+        <Text style={styles.sectionTitle}>Metodo de pago</Text>
         <View style={styles.paymentMethods}>
           {PAYMENT_METHODS.map((method) => (
             <TouchableOpacity
@@ -167,7 +321,7 @@ export const CreditsScreen: React.FC<CreditsScreenProps> = ({ navigation }) => {
                 {method.name}
               </Text>
               {!method.available && (
-                <Text style={styles.comingSoon}>Próximamente</Text>
+                <Text style={styles.comingSoon}>Proximamente</Text>
               )}
               {selectedPaymentMethod === method.id && (
                 <Text style={styles.checkMark}>✓</Text>
@@ -176,51 +330,62 @@ export const CreditsScreen: React.FC<CreditsScreenProps> = ({ navigation }) => {
           ))}
         </View>
 
-        {/* Historial de transacciones */}
-        <Text style={styles.sectionTitle}>Últimas transacciones</Text>
+        {/* Transaction History */}
+        <Text style={styles.sectionTitle}>Ultimas transacciones</Text>
         <Card variant="outlined" style={styles.transactionsCard}>
-          <View style={styles.transactionItem}>
-            <View style={styles.transactionInfo}>
-              <Text style={styles.transactionType}>Viaje a Terminal</Text>
-              <Text style={styles.transactionDate}>Hoy, 2:30 PM</Text>
+          {isLoadingTransactions ? (
+            <View style={styles.transactionsLoader}>
+              <ActivityIndicator color={COLORS.primary} />
             </View>
-            <Text style={[styles.transactionAmount, styles.transactionNegative]}>
-              -$8,500
-            </Text>
-          </View>
-          <View style={styles.transactionItem}>
-            <View style={styles.transactionInfo}>
-              <Text style={styles.transactionType}>Recarga Nequi</Text>
-              <Text style={styles.transactionDate}>Ayer, 10:00 AM</Text>
+          ) : transactions.length === 0 ? (
+            <View style={styles.noTransactions}>
+              <Text style={styles.noTransactionsText}>
+                Aun no tienes transacciones
+              </Text>
             </View>
-            <Text style={[styles.transactionAmount, styles.transactionPositive]}>
-              +$50,000
-            </Text>
-          </View>
-          <View style={styles.transactionItem}>
-            <View style={styles.transactionInfo}>
-              <Text style={styles.transactionType}>Viaje a Centro</Text>
-              <Text style={styles.transactionDate}>Hace 2 días</Text>
-            </View>
-            <Text style={[styles.transactionAmount, styles.transactionNegative]}>
-              -$6,200
-            </Text>
-          </View>
-          <TouchableOpacity style={styles.viewAllButton}>
-            <Text style={styles.viewAllText}>Ver todo el historial</Text>
-          </TouchableOpacity>
+          ) : (
+            <>
+              {transactions.map((tx) => (
+                <View key={tx.id} style={styles.transactionItem}>
+                  <Text style={styles.transactionIcon}>
+                    {getTransactionIcon(tx.type)}
+                  </Text>
+                  <View style={styles.transactionInfo}>
+                    <Text style={styles.transactionType}>{tx.description}</Text>
+                    <Text style={styles.transactionDate}>
+                      {formatTransactionDate(tx.createdAt)}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.transactionAmount,
+                      tx.amount > 0 ? styles.transactionPositive : styles.transactionNegative,
+                    ]}
+                  >
+                    {tx.amount > 0 ? '+' : ''}{formatCurrency(Math.abs(tx.amount))}
+                  </Text>
+                </View>
+              ))}
+              <TouchableOpacity
+                style={styles.viewAllButton}
+                onPress={() => navigation.navigate('TransactionHistory')}
+              >
+                <Text style={styles.viewAllText}>Ver todo el historial</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </Card>
 
-        {/* Beneficios */}
+        {/* Benefits */}
         <Card style={styles.benefitsCard}>
-          <Text style={styles.benefitsTitle}>Beneficios de usar créditos</Text>
+          <Text style={styles.benefitsTitle}>Beneficios de usar creditos</Text>
           <View style={styles.benefitItem}>
             <Text style={styles.benefitIcon}>💸</Text>
             <Text style={styles.benefitText}>Sin necesidad de efectivo</Text>
           </View>
           <View style={styles.benefitItem}>
             <Text style={styles.benefitIcon}>⚡</Text>
-            <Text style={styles.benefitText}>Pagos más rápidos</Text>
+            <Text style={styles.benefitText}>Pagos mas rapidos</Text>
           </View>
           <View style={styles.benefitItem}>
             <Text style={styles.benefitIcon}>🎁</Text>
@@ -229,19 +394,20 @@ export const CreditsScreen: React.FC<CreditsScreenProps> = ({ navigation }) => {
         </Card>
       </ScrollView>
 
-      {/* Botón de recarga */}
-      {finalAmount > 0 && (
+      {/* Recharge Button */}
+      {finalAmount > 0 && !amountError && (
         <View style={styles.rechargeContainer}>
           <View style={styles.rechargeInfo}>
             <Text style={styles.rechargeLabel}>Total a recargar</Text>
             <Text style={styles.rechargeAmount}>
-              ${finalAmount.toLocaleString()} COP
+              {formatCurrency(finalAmount)}
             </Text>
           </View>
           <Button
             title={isLoading ? 'Procesando...' : 'Recargar ahora'}
             onPress={handleRecharge}
             loading={isLoading}
+            disabled={!selectedPaymentMethod}
             fullWidth
             size="lg"
           />
@@ -288,6 +454,18 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: SPACING.md,
   },
+  devBanner: {
+    backgroundColor: COLORS.warning,
+    padding: SPACING.sm,
+    borderRadius: BORDER_RADIUS.md,
+    marginBottom: SPACING.md,
+  },
+  devBannerText: {
+    color: COLORS.white,
+    fontSize: FONT_SIZES.sm,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
   balanceCard: {
     backgroundColor: COLORS.primary,
     marginBottom: SPACING.lg,
@@ -296,6 +474,9 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     color: COLORS.white,
     opacity: 0.8,
+  },
+  balanceLoader: {
+    marginVertical: SPACING.md,
   },
   balanceAmount: {
     fontSize: FONT_SIZES.title,
@@ -361,6 +542,9 @@ const styles = StyleSheet.create({
     borderColor: COLORS.gray[200],
     paddingHorizontal: SPACING.md,
   },
+  customAmountInputError: {
+    borderColor: COLORS.error,
+  },
   currencyPrefix: {
     fontSize: FONT_SIZES.xl,
     color: COLORS.textSecondary,
@@ -380,6 +564,11 @@ const styles = StyleSheet.create({
   minAmount: {
     fontSize: FONT_SIZES.sm,
     color: COLORS.textSecondary,
+    marginTop: SPACING.xs,
+  },
+  errorText: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.error,
     marginTop: SPACING.xs,
   },
   paymentMethods: {
@@ -433,13 +622,28 @@ const styles = StyleSheet.create({
     padding: 0,
     overflow: 'hidden',
   },
+  transactionsLoader: {
+    padding: SPACING.xl,
+    alignItems: 'center',
+  },
+  noTransactions: {
+    padding: SPACING.xl,
+    alignItems: 'center',
+  },
+  noTransactionsText: {
+    fontSize: FONT_SIZES.md,
+    color: COLORS.textSecondary,
+  },
   transactionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     padding: SPACING.md,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.gray[100],
+  },
+  transactionIcon: {
+    fontSize: 24,
+    marginRight: SPACING.md,
   },
   transactionInfo: {
     flex: 1,

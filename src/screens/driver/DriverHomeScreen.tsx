@@ -1,5 +1,6 @@
 // ==========================================
 // CERCA - Pantalla Principal del Conductor
+// With real trip matching integration
 // ==========================================
 
 import React, { useEffect, useState, useRef } from 'react';
@@ -11,9 +12,10 @@ import {
   Dimensions,
   Switch,
   Alert,
+  Platform,
+  Vibration,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Card } from '../../components/common/Card';
@@ -21,18 +23,41 @@ import { EmergencyButton } from '../../components/emergency/EmergencyButton';
 import { COLORS, SPACING, FONT_SIZES, ARMENIA_CONFIG, TRIP_CONFIG } from '../../constants/theme';
 import { useAuthStore } from '../../store/authStore';
 import { useTripStore } from '../../store/tripStore';
+import { tripService } from '../../services/tripService';
+import { notificationService } from '../../services/notificationService';
 import { Coordinates, Trip } from '../../types';
+import { formatCurrency } from '../../utils/validation';
+import { config } from '../../config/environment';
 
 const { width, height } = Dimensions.get('window');
+
+// Conditionally import MapView for native platforms
+let MapView: any = null;
+let Marker: any = null;
+let PROVIDER_GOOGLE: any = null;
+
+if (Platform.OS !== 'web') {
+  try {
+    const Maps = require('react-native-maps');
+    MapView = Maps.default;
+    Marker = Maps.Marker;
+    PROVIDER_GOOGLE = Maps.PROVIDER_GOOGLE;
+  } catch (e) {
+    console.warn('react-native-maps not available');
+  }
+}
 
 type DriverHomeScreenProps = {
   navigation: NativeStackNavigationProp<any>;
 };
 
 export const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ navigation }) => {
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<any>(null);
   const [currentLocation, setCurrentLocation] = useState<Coordinates | null>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
+  const tripSubscription = useRef<any>(null);
+  const [todayEarnings, setTodayEarnings] = useState(0);
+  const [todayTrips, setTodayTrips] = useState(0);
 
   const { user } = useAuthStore();
   const {
@@ -40,36 +65,114 @@ export const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ navigation }
     setOnline,
     setDriverLocation,
     pendingTripRequests,
+    addPendingRequest,
+    removePendingRequest,
   } = useTripStore();
+
+  useEffect(() => {
+    // Register for push notifications
+    const setupNotifications = async () => {
+      const result = await notificationService.registerForPushNotifications();
+      if (result.success && result.data?.token && user?.id) {
+        await notificationService.savePushToken(user.id, result.data.token);
+      }
+    };
+    setupNotifications();
+
+    // Load today's stats
+    loadDriverStats();
+  }, []);
 
   useEffect(() => {
     if (isOnline) {
       startLocationTracking();
+      subscribeToTripRequests();
     } else {
       stopLocationTracking();
+      unsubscribeFromTripRequests();
     }
 
     return () => {
       stopLocationTracking();
+      unsubscribeFromTripRequests();
     };
   }, [isOnline]);
 
+  const loadDriverStats = async () => {
+    if (!user?.id) return;
+
+    try {
+      const result = await tripService.getDriverStats(user.id, 'today');
+      if (result.success && result.data) {
+        setTodayEarnings(result.data.earnings || 0);
+        setTodayTrips(result.data.tripCount || 0);
+      }
+    } catch (error) {
+      console.error('Error loading driver stats:', error);
+    }
+  };
+
+  const subscribeToTripRequests = () => {
+    if (!user?.id) return;
+
+    // Prevent duplicate subscriptions (memory leak fix)
+    if (tripSubscription.current) {
+      tripSubscription.current.unsubscribe();
+    }
+
+    tripSubscription.current = tripService.subscribeToDriverRequests(
+      user.id,
+      (newTrip) => {
+        console.log('New trip request received:', newTrip.id);
+
+        // Vibrate to alert driver
+        if (Platform.OS !== 'web') {
+          Vibration.vibrate([0, 500, 200, 500]);
+        }
+
+        // Add to pending requests
+        addPendingRequest(newTrip);
+
+        // Show local notification
+        notificationService.sendLocalNotification(
+          'Nueva solicitud de viaje',
+          `${formatCurrency(newTrip.price?.total || 0)} - ${newTrip.origin?.address || 'Origen'}`,
+          { tripId: newTrip.id, type: 'trip_request' }
+        );
+      }
+    );
+  };
+
+  const unsubscribeFromTripRequests = () => {
+    if (tripSubscription.current) {
+      tripSubscription.current.unsubscribe();
+      tripSubscription.current = null;
+    }
+  };
+
   const startLocationTracking = async () => {
+    // Prevent duplicate subscriptions (memory leak fix)
+    if (locationSubscription.current) {
+      locationSubscription.current.remove();
+    }
+
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permiso requerido', 'Necesitamos tu ubicación para recibir viajes');
+        Alert.alert('Permiso requerido', 'Necesitamos tu ubicacion para recibir viajes');
         setOnline(false);
         return;
       }
 
-      // Solicitar permiso de ubicación en segundo plano
-      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-      if (bgStatus !== 'granted') {
-        Alert.alert(
-          'Ubicación en segundo plano',
-          'Para mejores resultados, permite la ubicación siempre activa en configuración.'
-        );
+      // Request background location permission
+      if (Platform.OS !== 'web') {
+        const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+        if (bgStatus !== 'granted') {
+          Alert.alert(
+            'Ubicacion en segundo plano',
+            'Para mejores resultados, permite la ubicacion siempre activa en configuracion.'
+          );
+        }
       }
 
       locationSubscription.current = await Location.watchPositionAsync(
@@ -78,13 +181,18 @@ export const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ navigation }
           timeInterval: 5000,
           distanceInterval: 10,
         },
-        (location) => {
+        async (location) => {
           const coords = {
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
           };
           setCurrentLocation(coords);
           setDriverLocation(coords);
+
+          // Update driver location in database
+          if (user?.id) {
+            await tripService.updateDriverLocation(user.id, coords);
+          }
         }
       );
     } catch (error) {
@@ -105,10 +213,10 @@ export const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ navigation }
     if (value) {
       Alert.alert(
         'Conectarte',
-        '¿Listo para recibir viajes?',
+        'Listo para recibir viajes?',
         [
           { text: 'Cancelar', style: 'cancel' },
-          { text: 'Sí, conectar', onPress: () => setOnline(true) },
+          { text: 'Si, conectar', onPress: () => setOnline(true) },
         ]
       );
     } else {
@@ -116,18 +224,62 @@ export const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ navigation }
     }
   };
 
-  const handleAcceptTrip = (trip: Trip) => {
-    // TODO: Implementar aceptación de viaje
-    navigation.navigate('ActiveTrip', { tripId: trip.id });
+  const handleAcceptTrip = async (trip: Trip) => {
+    if (!user?.id) return;
+
+    try {
+      const result = await tripService.acceptTrip(trip.id, user.id);
+
+      if (result.success) {
+        removePendingRequest(trip.id);
+
+        // Navigate to active trip screen
+        navigation.navigate('ActiveTrip', { tripId: trip.id, trip: result.data });
+      } else {
+        Alert.alert('Error', result.error || 'No se pudo aceptar el viaje');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Error de conexion. Intenta de nuevo.');
+    }
   };
 
-  // Calcular ganancias del día (mock)
-  const todayEarnings = 125000;
-  const todayTrips = 8;
+  const handleRejectTrip = async (trip: Trip) => {
+    if (!user?.id) return;
 
-  return (
-    <View style={styles.container}>
-      {/* Mapa */}
+    try {
+      await tripService.rejectTrip(trip.id, user.id);
+      removePendingRequest(trip.id);
+    } catch (error) {
+      console.error('Error rejecting trip:', error);
+      // Still remove from local state
+      removePendingRequest(trip.id);
+    }
+  };
+
+  // Web fallback map
+  const renderMap = () => {
+    if (Platform.OS === 'web' || !MapView) {
+      return (
+        <View style={styles.webMap}>
+          <Text style={styles.webMapIcon}>{isOnline ? '🟢' : '🔴'}</Text>
+          <Text style={styles.webMapText}>
+            {isOnline ? 'Esperando solicitudes...' : 'Desconectado'}
+          </Text>
+          {currentLocation && (
+            <Text style={styles.webMapLocation}>
+              📍 {currentLocation.latitude.toFixed(4)}, {currentLocation.longitude.toFixed(4)}
+            </Text>
+          )}
+          {config.isDevelopment && (
+            <View style={styles.devBadge}>
+              <Text style={styles.devBadgeText}>MODO DESARROLLO</Text>
+            </View>
+          )}
+        </View>
+      );
+    }
+
+    return (
       <MapView
         ref={mapRef}
         style={styles.map}
@@ -136,6 +288,13 @@ export const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ navigation }
         showsUserLocation={isOnline}
         showsMyLocationButton={false}
       />
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      {/* Map */}
+      {renderMap()}
 
       {/* Header */}
       <SafeAreaView style={styles.header} edges={['top']}>
@@ -166,14 +325,14 @@ export const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ navigation }
         </View>
       </SafeAreaView>
 
-      {/* Panel de ganancias */}
+      {/* Earnings Panel */}
       <View style={styles.earningsPanel}>
         <Card style={styles.earningsCard}>
           <View style={styles.earningsRow}>
             <View style={styles.earningItem}>
               <Text style={styles.earningLabel}>Hoy</Text>
               <Text style={styles.earningValue}>
-                ${todayEarnings.toLocaleString()}
+                {formatCurrency(todayEarnings)}
               </Text>
             </View>
             <View style={styles.earningDivider} />
@@ -190,14 +349,14 @@ export const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ navigation }
         </Card>
       </View>
 
-      {/* Solicitudes de viaje pendientes */}
+      {/* Pending Trip Requests */}
       {pendingTripRequests.length > 0 && (
         <View style={styles.tripRequestContainer}>
           {pendingTripRequests.map((trip) => (
             <Card key={trip.id} style={styles.tripRequestCard}>
               <View style={styles.tripRequestHeader}>
                 <Text style={styles.tripRequestPrice}>
-                  ${trip.price.total.toLocaleString()}
+                  {formatCurrency(trip.price?.total || 0)}
                 </Text>
                 <Text style={styles.tripRequestDistance}>
                   {((trip.route?.distance || 0) / 1000).toFixed(1)} km
@@ -208,13 +367,13 @@ export const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ navigation }
                 <View style={styles.tripLocation}>
                   <View style={styles.originDot} />
                   <Text style={styles.tripLocationText} numberOfLines={1}>
-                    {trip.origin.address}
+                    {trip.origin?.address || 'Origen'}
                   </Text>
                 </View>
                 <View style={styles.tripLocation}>
                   <View style={styles.destinationDot} />
                   <Text style={styles.tripLocationText} numberOfLines={1}>
-                    {trip.destination.address}
+                    {trip.destination?.address || 'Destino'}
                   </Text>
                 </View>
               </View>
@@ -222,7 +381,7 @@ export const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ navigation }
               <View style={styles.tripRequestActions}>
                 <TouchableOpacity
                   style={styles.rejectButton}
-                  onPress={() => {/* TODO: Rechazar */}}
+                  onPress={() => handleRejectTrip(trip)}
                 >
                   <Text style={styles.rejectButtonText}>Rechazar</Text>
                 </TouchableOpacity>
@@ -238,13 +397,13 @@ export const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ navigation }
         </View>
       )}
 
-      {/* Acciones rápidas del conductor */}
+      {/* Quick Actions */}
       <View style={styles.quickActions}>
         <TouchableOpacity
           style={styles.quickAction}
           onPress={() => navigation.navigate('CommunityRoutes')}
         >
-          <Text style={styles.quickActionIcon}>🗓️</Text>
+          <Text style={styles.quickActionIcon}>📅</Text>
           <Text style={styles.quickActionText}>Mis Rutas</Text>
         </TouchableOpacity>
 
@@ -265,13 +424,13 @@ export const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ navigation }
         </TouchableOpacity>
       </View>
 
-      {/* Panel inferior cuando está offline */}
+      {/* Offline Panel */}
       {!isOnline && (
         <View style={styles.offlinePanel}>
           <Card style={styles.offlineCard}>
-            <Text style={styles.offlineTitle}>Estás desconectado</Text>
+            <Text style={styles.offlineTitle}>Estas desconectado</Text>
             <Text style={styles.offlineSubtitle}>
-              Activa la conexión para empezar a recibir viajes
+              Activa la conexion para empezar a recibir viajes
             </Text>
             <TouchableOpacity
               style={styles.goOnlineButton}
@@ -283,14 +442,14 @@ export const DriverHomeScreen: React.FC<DriverHomeScreenProps> = ({ navigation }
         </View>
       )}
 
-      {/* Indicador de comisión CERCA */}
+      {/* Commission Info */}
       <View style={styles.commissionInfo}>
         <Text style={styles.commissionText}>
-          Comisión CERCA: {(TRIP_CONFIG.commissionRate * 100).toFixed(0)}%
+          Comision CERCA: {(TRIP_CONFIG.commissionRate * 100).toFixed(0)}%
         </Text>
       </View>
 
-      {/* Botón de emergencia */}
+      {/* Emergency Button */}
       <EmergencyButton currentLocation={currentLocation || undefined} />
     </View>
   );
@@ -304,6 +463,41 @@ const styles = StyleSheet.create({
   map: {
     width,
     height,
+  },
+  webMap: {
+    flex: 1,
+    backgroundColor: COLORS.gray[100],
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.xl,
+  },
+  webMapIcon: {
+    fontSize: 64,
+    marginBottom: SPACING.md,
+  },
+  webMapText: {
+    fontSize: FONT_SIZES.xl,
+    color: COLORS.textPrimary,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: SPACING.sm,
+  },
+  webMapLocation: {
+    fontSize: FONT_SIZES.md,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+  },
+  devBadge: {
+    marginTop: SPACING.lg,
+    backgroundColor: COLORS.warning,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderRadius: 12,
+  },
+  devBadgeText: {
+    color: COLORS.white,
+    fontSize: FONT_SIZES.sm,
+    fontWeight: 'bold',
   },
   header: {
     position: 'absolute',
